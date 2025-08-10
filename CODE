@@ -1,0 +1,235 @@
+import gradio as gr
+from twilio.rest import Client as TwilioClient
+from instagrapi import Client as InstaClient
+import smtplib
+from email.message import EmailMessage
+import pywhatkit as whatsapp
+from linkedin_api import Linkedin
+import tempfile
+import os
+
+# -------------------------------
+# Text-to-Speech replacement
+# -------------------------------
+
+# In Gradio we’ll just return text for the user to read.
+def speak_text(text):
+    return text
+
+# -------------------------------
+# Email Sending Function
+# -------------------------------
+def send_email(email_sender, email_password, email_receiver, subject, body):
+    if not all([email_sender, email_password, email_receiver, subject, body]):
+        return "⚠️ Please fill in all fields."
+    
+    try:
+        msg = EmailMessage()
+        msg['From'] = email_sender
+        msg['To'] = email_receiver
+        msg['Subject'] = subject
+        msg.set_content(body)
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(email_sender, email_password)
+            smtp.send_message(msg)
+
+        return f"✅ Email sent successfully!\n\nTo: {email_receiver}\nSubject: {subject}"
+    except Exception as e:
+        return f"❌ Failed to send email: {e}"
+
+# -------------------------------
+# SMS Sending Function
+# -------------------------------
+def send_sms(account_sid, auth_token, from_number, to_number, sms_body):
+    if not all([account_sid, auth_token, from_number, to_number, sms_body]):
+        return "⚠️ Please fill in all fields."
+    try:
+        client = TwilioClient(account_sid, auth_token)
+        message = client.messages.create(
+            body=sms_body,
+            from_=from_number,
+            to=to_number
+        )
+        return f"📱 SMS sent successfully!\n\nSID: {message.sid}"
+    except Exception as e:
+        return f"❌ Failed to send SMS: {e}"
+
+# -------------------------------
+# Voice Call Function
+# -------------------------------
+def make_voice_call(account_sid, auth_token, from_number, to_number, call_message):
+    if not all([account_sid, auth_token, from_number, to_number, call_message]):
+        return "⚠️ Please fill in all fields."
+    try:
+        client = TwilioClient(account_sid, auth_token)
+        call = client.calls.create(
+            to=to_number,
+            from_=from_number,
+            twiml=f"<Response><Say>{call_message}</Say></Response>"
+        )
+        return f"✅ Call initiated successfully!\n\nCall SID: {call.sid}"
+    except Exception as e:
+        return f"❌ Failed to place the call: {e}"
+
+# -------------------------------
+# WhatsApp Function
+# -------------------------------
+def send_whatsapp_message(phone, message, hour, minute):
+    if not all([phone, message]):
+        return "⚠️ Please fill in all fields."
+    try:
+        whatsapp.sendwhatmsg(
+            phone_no=phone,
+            message=message,
+            time_hour=int(hour),
+            time_min=int(minute)
+        )
+        return "✅ WhatsApp message scheduled successfully!"
+    except Exception as e:
+        return f"❌ Failed to send WhatsApp message: {e}"
+
+# -------------------------------
+# Instagram Post Function
+# -------------------------------
+def post_to_instagram(username, password, image_file, caption):
+    if not all([username, password, caption]):
+        return "⚠️ Please fill in all fields."
+    if image_file is None:
+        return "❌ Please upload an image."
+
+    try:
+        cl = InstaClient()
+        cl.login(username, password)
+        # Save the uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+            tmp_file.write(image_file.read())
+            tmp_path = tmp_file.name
+        cl.photo_upload(tmp_path, caption)
+        os.unlink(tmp_path)
+        return "✅ Successfully posted to Instagram!"
+    except Exception as e:
+        return f"❌ Failed to post to Instagram: {e}"
+
+# -------------------------------
+# LinkedIn Post Function
+# -------------------------------
+def post_to_linkedin(username, password, post_text):
+    if not all([username, password, post_text]):
+        return "⚠️ Please fill in all fields."
+    try:
+        api = Linkedin(username, password)
+        my_profile = api.get_profile()
+        urn = my_profile["entityUrn"].split(":")[-1]
+        response = api.submit_share(
+            author_urn=f"urn:li:person:{urn}",
+            text=post_text
+        )
+        return f"✅ Post uploaded successfully!\n\n{response}"
+    except Exception as e:
+        return f"❌ Failed to post to LinkedIn: {e}"
+
+# -------------------------------
+# Gradio Interfaces
+# -------------------------------
+
+# Email UI
+email_interface = gr.Interface(
+    fn=send_email,
+    inputs=[
+        gr.Textbox(label="Enter your Gmail address:"),
+        gr.Textbox(label="Enter your App Password:", type="password"),
+        gr.Textbox(label="Enter receiver's email:"),
+        gr.Textbox(label="Subject:"),
+        gr.Textbox(label="Message Body:", lines=5),
+    ],
+    outputs="text",
+    title="📧 Send Email"
+)
+
+# SMS UI
+sms_interface = gr.Interface(
+    fn=send_sms,
+    inputs=[
+        gr.Textbox(label="Twilio Account SID:"),
+        gr.Textbox(label="Twilio Auth Token:", type="password"),
+        gr.Textbox(label="Your Twilio phone number:"),
+        gr.Textbox(label="Recipient phone number:"),
+        gr.Textbox(label="Message to send:"),
+    ],
+    outputs="text",
+    title="📱 Send SMS"
+)
+
+# Voice Call UI
+call_interface = gr.Interface(
+    fn=make_voice_call,
+    inputs=[
+        gr.Textbox(label="Twilio Account SID:"),
+        gr.Textbox(label="Twilio Auth Token:", type="password"),
+        gr.Textbox(label="Your Twilio phone number:"),
+        gr.Textbox(label="Recipient phone number:"),
+        gr.Textbox(label="Message to speak during call:", lines=3),
+    ],
+    outputs="text",
+    title="☎️ Make Voice Call"
+)
+
+# WhatsApp UI
+whatsapp_interface = gr.Interface(
+    fn=send_whatsapp_message,
+    inputs=[
+        gr.Textbox(label="Receiver's number (with country code):"),
+        gr.Textbox(label="Message text:"),
+        gr.Number(label="Hour (24-hour format):", precision=0),
+        gr.Number(label="Minute:", precision=0),
+    ],
+    outputs="text",
+    title="💬 Send WhatsApp Message"
+)
+
+# Instagram UI
+instagram_interface = gr.Interface(
+    fn=post_to_instagram,
+    inputs=[
+        gr.Textbox(label="Instagram Username:"),
+        gr.Textbox(label="Instagram Password:", type="password"),
+        gr.File(label="Upload an image (jpg, jpeg, png)"),
+        gr.Textbox(label="Caption:", lines=3),
+    ],
+    outputs="text",
+    title="📸 Post to Instagram"
+)
+
+# LinkedIn UI
+linkedin_interface = gr.Interface(
+    fn=post_to_linkedin,
+    inputs=[
+        gr.Textbox(label="LinkedIn Email:"),
+        gr.Textbox(label="LinkedIn Password:", type="password"),
+        gr.Textbox(label="Write your post:", lines=5),
+    ],
+    outputs="text",
+    title="🔗 Post to LinkedIn"
+)
+
+# Combine all tabs
+gr.TabbedInterface(
+    [
+        email_interface,
+        sms_interface,
+        call_interface,
+        whatsapp_interface,
+        instagram_interface,
+        linkedin_interface
+    ],
+    tab_names=[
+        "Send Email",
+        "Send SMS",
+        "Make Voice Call",
+        "Send WhatsApp Message",
+        "Post to Instagram",
+        "Post to LinkedIn"
+    ],
+    title="🧠🔗 NeuroLinker"
+).launch()
